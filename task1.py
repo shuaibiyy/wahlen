@@ -1,14 +1,15 @@
 # coding=utf-8
-# Written using python 2.7.10
+# Written using python 3.6
 import csv
 import pprint
+from functools import reduce
 
 
 def fetch_rows(csv_path):
     """Open a CSV file and read its lines."""
     rows = []
 
-    with open(csv_path, 'rb') as f:
+    with open(csv_path, 'rt', encoding='utf8') as f:
         reader = csv.reader(f)
         for row in reader:
             rows.append(row)
@@ -23,7 +24,7 @@ def get_csv_values():
     # Remove column headings
     del rows[0]
 
-    return map(lambda x: x[0].split(';'), rows)
+    return list(map(lambda x: x[0].split(';'), rows))
 
 
 def parties():
@@ -35,7 +36,7 @@ def parties():
 
     not_parties = ['Wahlberechtigte', 'Wähler', 'Ungültige', 'Gültige']
 
-    return filter(lambda x: x not in not_parties, initial)
+    return list(filter(lambda x: x not in not_parties, initial))
 
 
 def second_vote(party, value):
@@ -49,24 +50,24 @@ def second_vote(party, value):
 
 def second_votes(party, values):
     """Return all zweitstimmen for a party."""
-    return map(lambda x: second_vote(party, x), values)
+    return list(map(lambda x: second_vote(party, x), values))
 
 
-def filter_dashes((k, v)):
+def filter_dashes(kv):
     """Remove dashes from seconds in a 2-tuple."""
-    return k, filter(lambda x: x != '-', v)
+    return kv[0], list(filter(lambda x: x != '-', kv[1]))
 
 
-def aggregate((k, v)):
+def aggregate(kv):
     """Aggregate values of all seconds in a 2-tuple."""
-    return k, reduce(lambda acc, x: acc + int(x), v, 0)
+    return kv[0], reduce(lambda acc, x: acc + int(x), kv[1], 0)
 
 
 def cleanse_votes(dirty):
     """Return a sorted list of parties with non-zero votes."""
-    unsorted_votes = map(aggregate, map(filter_dashes, dirty))
+    unsorted_votes = list(map(aggregate, map(filter_dashes, dirty)))
 
-    non_zero_votes = filter(lambda x: x[1] != 0, unsorted_votes)
+    non_zero_votes = list(filter(lambda x: x[1] != 0, unsorted_votes))
 
     return sorted(non_zero_votes, key=lambda tup: tup[1], reverse=True)
 
@@ -78,7 +79,7 @@ def percentage(num, denom):
 
 def votes_with_percentages(vote_total, all_votes):
     """Return a list of parties along with their votes and percentage share."""
-    return map(lambda (k, v): (k, percentage(v, vote_total)), all_votes)
+    return list(map(lambda kv: (kv[0], percentage(kv[1], vote_total)), all_votes))
 
 
 def votes():
@@ -87,18 +88,18 @@ def votes():
     ps = parties()
 
     # contains `-` values for missing votes.
-    unfiltered_values = map(lambda x: (x, second_votes(x, vs)), ps)
+    unfiltered_values = list(map(lambda x: (x, second_votes(x, vs)), ps))
 
     cleansed_votes = cleanse_votes(unfiltered_values)
 
-    vote_total = reduce(lambda acc, (k, v): acc + v, cleansed_votes, 0)
+    vote_total = reduce(lambda acc, kv: acc + kv[1], cleansed_votes, 0)
 
     return votes_with_percentages(vote_total, cleansed_votes)
 
 
+# For Printing #########
 print('Party;Percentage')
 for row in votes():
     print('{0};{1}'.format(row[0], row[1]))
-
 
 # pprint.pprint(votes())
