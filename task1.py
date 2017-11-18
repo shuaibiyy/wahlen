@@ -1,11 +1,14 @@
 # coding=utf-8
 # Written using python 3.6
 import csv
+import pprint
 import pandas as pd
-from functools import reduce
 import matplotlib.pyplot as plt
+from functools import reduce
 
 plt.rcdefaults()
+
+NOT_PARTIES = ['Wahlberechtigte', 'Wähler', 'Ungültige', 'Gültige']
 
 
 def fetch_rows(csv_path):
@@ -30,18 +33,26 @@ def get_csv_values():
     return list(map(lambda x: x[0].split(';'), rows))
 
 
-def parties(csv_values):
-    """Return a set of all parties in the csv."""
+def values_at(csv_values, index):
+    """Return all values at an index in the csv."""
 
-    # party names are at the 3rd index.
-    initial = list(set(map(lambda x: x[2], csv_values)))
+    # remove entries that are not for parties.
+    filtered = list(filter(lambda x: x[2] not in NOT_PARTIES, csv_values))
 
-    not_parties = ['Wahlberechtigte', 'Wähler', 'Ungültige', 'Gültige']
-
-    return list(filter(lambda x: x not in not_parties, initial))
+    return list(map(lambda x: x[index], filtered))
 
 
-def second_vote(party, value):
+def unique_values_at(csv_values, index):
+    """Return all unique values at an index in the csv."""
+    return set(values_at(csv_values, index))
+
+
+def values_by(csv_values, filter_text, index):
+    """Return values filtered by the text at an index."""
+    return list(filter(lambda x: x[index] == filter_text, csv_values))
+
+
+def party_second_vote(party, value):
     """Return a zweitstimmen if it matches a party."""
     if value[2] == party:
         # zweitstimmen is at index #4.
@@ -50,9 +61,9 @@ def second_vote(party, value):
     return '-'
 
 
-def second_votes(party, values):
+def party_second_votes(party, values):
     """Return all zweitstimmen for a party."""
-    return list(map(lambda x: second_vote(party, x), values))
+    return list(map(lambda x: party_second_vote(party, x), values))
 
 
 def filter_dashes(kv):
@@ -113,7 +124,7 @@ def merge_parties_alt_names(parties_votes):
     return map(lambda x: merge_alt_names(alternate_names, alts, x), originals)
 
 
-def cleanse_votes(dirty):
+def cleanse_second_votes(dirty):
     """Return a sorted list of merged parties with non-zero votes."""
     unsorted_votes = list(map(aggregate, map(filter_dashes, dirty)))
     non_zero_votes = list(filter(lambda x: x[1] != 0, unsorted_votes))
@@ -132,18 +143,70 @@ def votes_with_percentages(votes_with_total):
     return list(map(lambda kv: (kv[0], percentage(kv[1], votes_with_total[1])), votes_with_total[0]))
 
 
-def votes():
+def second_votes():
     """Compute zweitstimmen for all parties in the csv."""
     vs = get_csv_values()
-    ps = parties(vs)
+    # party names are at the 3rd index.
+    parties = unique_values_at(vs, 2)
 
     # contains `-` values for missing votes.
-    unfiltered_values = list(map(lambda x: (x, second_votes(x, vs)), ps))
+    unfiltered_values = list(map(lambda x: (x, party_second_votes(x, vs)), parties))
 
-    cleansed_votes = cleanse_votes(unfiltered_values)
+    cleansed_votes = cleanse_second_votes(unfiltered_values)
     vote_total = total(cleansed_votes)
 
     return cleansed_votes, vote_total
+
+
+def constituency_votes(constituency, values):
+    """Return the votes for the parties in a constituency."""
+    const_vals = values_by(values, constituency, 1)
+
+    return list(map(lambda x: (x[2], x[3]), const_vals))
+
+
+def constituencies_votes(state, values):
+    """Return the votes for the constituencies in a state."""
+    state_vals = values_by(values, state, 0)
+    constituencies = unique_values_at(state_vals, 1)
+
+    return list(map(lambda x: (x, constituency_votes(x, state_vals)), constituencies))
+
+
+def cleanse_first_votes(values):
+    real_parties = list(filter(lambda x: x[2] not in NOT_PARTIES, values))
+    with_votes = list(filter(lambda x: x[3] != '-', real_parties))
+    states = unique_values_at(values, 0)
+
+    # NOTE: cleansing should occur (including merge) before transformations.
+
+    # A list of states, where each state is a tuple of the state id and a list of constituents.
+    # Each constituent is a tuple of the constituent id and a list of tuples of parties and their votes.
+    # E.G.:
+    # [[('1',
+    #    [('11',
+    #      [('CDU', 5000), ('DIE LINKE', 4000)]),
+    #     ('15',
+    #      [('DIE LINKE', 6000), ('CDU', 3435)])])]]
+
+    states_votes = list(map(lambda x: (x, constituencies_votes(x, with_votes)), states))
+
+    return states_votes
+
+
+def first_votes():
+    """Return parties in all states and constituencies with their 1st and 2nd votes."""
+    vs = get_csv_values()
+
+    cleansed = cleanse_first_votes(vs)
+    return cleansed
+
+
+def direktmandat_winners():
+    """Return the winners of the direktmandat for each constituency.
+    E.g. [['1', [('11', 'CDU'), ('4', 'DIE LINKE')], ['2', [('1', 'CDU')]]]]"""
+    # For each state, get the constituencies.
+    # For each constituency, get the parties and their votes, reduce to party with largest votes.
 
 
 def total_below(vs, percent):
@@ -154,7 +217,7 @@ def total_below(vs, percent):
 
 def chart():
     """Display a bar chart of parties to the percentages of their votes."""
-    vs = votes_with_percentages(votes())
+    vs = votes_with_percentages(second_votes())
 
     above_five_percent = list(filter(lambda x: float(x[1]) >= 5, vs))
     total_below_5_percent = total_below(vs, 5)
@@ -177,7 +240,7 @@ def chart():
 
 def chart_with_labels():
     """Display a bar chart with percentage labels for each bar."""
-    vs = votes_with_percentages(votes())
+    vs = votes_with_percentages(second_votes())
 
     above_five_percent = list(filter(lambda x: float(x[1]) >= 5, vs))
     total_below_5_percent = total_below(vs, 5)
@@ -209,7 +272,7 @@ def chart_with_labels():
 def display_votes():
     """Display semicolon separated values of parties and their vote percentages."""
     print('Party;Votes')
-    for row in votes()[0]:
+    for row in second_votes()[0]:
         print('{0};{1}'.format(row[0], row[1]))
 
 
@@ -227,7 +290,7 @@ def compute_seats(dividend, total_shares, total_seats, parties_votes):
 def second_vote_seats():
     """Allocate seats based on zweitstimmen."""
     total_seats = 599
-    vv, shares = votes()
+    vv, shares = second_votes()
     starting_dividend = round(float(shares) / total_seats)
 
     allocations, allocated = compute_seats(starting_dividend, shares, total_seats, vv)
@@ -237,4 +300,4 @@ def second_vote_seats():
         print('{0};{1}'.format(row[0], row[1]))
 
 
-second_vote_seats()
+pprint.pprint(first_votes())
