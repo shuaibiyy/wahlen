@@ -8,8 +8,6 @@ from functools import reduce
 
 plt.rcdefaults()
 
-NOT_PARTIES = ['Wahlberechtigte', 'Wähler', 'Ungültige', 'Gültige']
-
 
 def fetch_rows(csv_path):
     """Open a CSV file and read its lines."""
@@ -33,11 +31,16 @@ def get_csv_values():
     return list(map(lambda x: x[0].split(';'), rows))
 
 
+def filter_not_parties(values):
+    """Remove entries that are not for parties."""
+    not_parties = ['Wahlberechtigte', 'Wähler', 'Ungültige', 'Gültige']
+    return list(filter(lambda x: x[2] not in not_parties, values))
+
+
 def values_at(csv_values, index):
     """Return all values at an index in the csv."""
 
-    # remove entries that are not for parties.
-    filtered = list(filter(lambda x: x[2] not in NOT_PARTIES, csv_values))
+    filtered = filter_not_parties(csv_values)
 
     return list(map(lambda x: x[index], filtered))
 
@@ -174,39 +177,54 @@ def constituencies_votes(state, values):
 
 
 def cleanse_first_votes(values):
-    real_parties = list(filter(lambda x: x[2] not in NOT_PARTIES, values))
+    """Return a list of states, where each state is a tuple of its id & a list of its constituents,
+     & each constituent is a tuple of its id & a list of tuples of its parties & their votes.
+     E.G.:
+     [[('1',
+           [('11',
+             [('CDU', 5000), ('DIE LINKE', 4000)]),
+            ('15',
+             [('DIE LINKE', 6000), ('CDU', 3435)])])]]
+     """
+    # TODO: merge parties with alternate names.
+    real_parties = filter_not_parties(values)
     with_votes = list(filter(lambda x: x[3] != '-', real_parties))
     states = unique_values_at(values, 0)
-
-    # NOTE: cleansing should occur (including merge) before transformations.
-
-    # A list of states, where each state is a tuple of the state id and a list of constituents.
-    # Each constituent is a tuple of the constituent id and a list of tuples of parties and their votes.
-    # E.G.:
-    # [[('1',
-    #    [('11',
-    #      [('CDU', 5000), ('DIE LINKE', 4000)]),
-    #     ('15',
-    #      [('DIE LINKE', 6000), ('CDU', 3435)])])]]
-
     states_votes = list(map(lambda x: (x, constituencies_votes(x, with_votes)), states))
 
     return states_votes
 
 
 def first_votes():
-    """Return parties in all states and constituencies with their 1st and 2nd votes."""
+    """Return parties in all states and constituencies with their 1st votes."""
     vs = get_csv_values()
 
-    cleansed = cleanse_first_votes(vs)
-    return cleansed
+    return cleanse_first_votes(vs)
+
+
+def higher(current, new):
+    """Return the tuple with a higher value in its 2nd element among 2 tuples."""
+    if int(new[1]) > int(current[1]):
+        return new
+    return current
+
+
+def constituency_winner(parties):
+    """Return the winner of a constituency."""
+    return reduce(lambda acc, x: higher(acc, x), parties, ('', 0))
+
+
+def state_winners(state_vals):
+    """Return the winners of the constituencies in a state."""
+    return list(map(lambda y: (y[0], constituency_winner(y[1])[0]), state_vals))
 
 
 def direktmandat_winners():
-    """Return the winners of the direktmandat for each constituency.
-    E.g. [['1', [('11', 'CDU'), ('4', 'DIE LINKE')], ['2', [('1', 'CDU')]]]]"""
-    # For each state, get the constituencies.
-    # For each constituency, get the parties and their votes, reduce to party with largest votes.
+    """Return the winners of the direktmandat for all constituencies in all states.
+    E.g. [('1', [('11', 'CDU'), ('4', 'DIE LINKE')]), ('2', [('1', 'CDU'), ('10', 'SPD')])]"""
+    votes = first_votes()
+
+    return list(map(lambda x: (x[0], state_winners(x[1])), votes))
 
 
 def total_below(vs, percent):
@@ -300,4 +318,4 @@ def second_vote_seats():
         print('{0};{1}'.format(row[0], row[1]))
 
 
-pprint.pprint(first_votes())
+pprint.pprint(direktmandat_winners())
