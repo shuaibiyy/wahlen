@@ -1,9 +1,9 @@
 # coding=utf-8
 # Written using python 3.6
 import csv
-import pprint
 import pandas as pd
 import matplotlib.pyplot as plt
+from pprint import pprint
 from functools import reduce
 from collections import Counter
 
@@ -168,7 +168,7 @@ def cleanse_votes_by_constituencies(values, vote_index):
     with_votes = list(filter(lambda x: x[vote_index] != '-', real_parties))
     states = unique_values_at(values, 0)
     states_votes = list(map(lambda x: (x, constituencies_votes(x, with_votes, vote_index)), states))
-    pprint.pprint(states_votes)
+
     return states_votes
 
 
@@ -224,7 +224,6 @@ def cleanse_second_votes(dirty):
     """Return a sorted list of merged parties with non-zero votes."""
     unsorted_votes = list(map(aggregate, map(filter_dashes, dirty)))
     non_zero_votes = list(filter(lambda x: x[1] != 0, unsorted_votes))
-    pprint.pprint(non_zero_votes)
     merged_votes = merge_parties_alt_names(non_zero_votes)
 
     return sorted(merged_votes, key=lambda tup: tup[1], reverse=True)
@@ -357,17 +356,20 @@ def display_votes():
         print('{0};{1}'.format(row[0], row[1]))
 
 
-def compute_seats(dividend, total_shares, total_seats, parties_votes):
+def compute_seats(total_seats, proportions):
     """Seat allocation algorithm."""
+    total_proportions = total(proportions)
+    divisor = round(float(total_proportions) / total_seats)
+
     while True:
-        trial_seats = list(map(lambda x: (x[0], round(float(x[1]) / dividend)), parties_votes))
+        trial_seats = list(map(lambda x: (x[0], round(float(x[1]) / divisor)), proportions))
         total_trial_seats = total(trial_seats)
 
         if total_trial_seats != total_seats:
             if total_trial_seats > total_seats:
-                dividend += 1
+                divisor += 1
             else:
-                dividend -= 1
+                divisor -= 1
             continue
 
         return trial_seats
@@ -377,11 +379,8 @@ def state_seat_distribution():
     """Allocate seats to each state based on population."""
     total_seats = 598
     state_pops = list(map(lambda x: (x[0], x[2]), get_population_values()))
-    total_pop = total(state_pops)
-    starting_dividend = round(float(total_pop) / total_seats)
 
-    # return distribute(state_pops, total_seats)
-    return compute_seats(starting_dividend, total_pop, total_seats, state_pops)
+    return compute_seats(total_seats, state_pops)
 
 
 def compute_state_seats(state_votes, state_distribution, eligible_parties):
@@ -389,10 +388,8 @@ def compute_state_seats(state_votes, state_distribution, eligible_parties):
     state, parties_votes = state_votes
     eligible_votes = list(filter(lambda x: x[0] in eligible_parties, parties_votes))
     _, total_seats = lookup_1st_value(state_distribution, state)
-    total_votes = total(eligible_votes)
-    starting_dividend = round(float(total_votes) / total_seats)
 
-    return compute_seats(starting_dividend, total_votes, total_seats, eligible_votes)
+    return compute_seats(total_seats, eligible_votes)
 
 
 def second_vote_seat_distribution():
@@ -408,4 +405,27 @@ def second_vote_seat_distribution():
     return list(map(lambda x: (x[0], compute_state_seats(x, state_distribution, eligible_parties)), votes_by_state))
 
 
-pprint.pprint(second_vote_seat_distribution())
+def display_seat_distribution():
+    """Print the seat distribution in the Bundestag."""
+    first = states_direct_seats()
+    second = second_vote_seat_distribution()
+    state_names = list(map(lambda x: (x[0], x[1]), get_population_values()))
+
+    print('state;party;direct_seats;list_seats;ueberhang')
+    for i in second:
+        for j in first:
+            # if it's the same state
+            if i[0] == j[0]:
+                for k in i[1]:
+                    first_vote_counterpart = lookup_1st_value(j[1], k[0])
+                    _, state_name = lookup_1st_value(state_names, i[0])
+
+                    # Ueberhang is the difference when direct seats are more than list seats.
+                    ueberhang = int(first_vote_counterpart[1]) - int(k[1])
+                    if ueberhang < 0:
+                        ueberhang = 0
+
+                    print('{0};{1};{2};{3};{4}'.format(state_name, k[0], first_vote_counterpart[1], k[1], ueberhang))
+
+
+display_seat_distribution()
