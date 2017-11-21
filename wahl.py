@@ -126,7 +126,8 @@ def merge_parties_alt_names(parties_votes):
     """Merge the votes of parties with votes of their known alternate names."""
     alternate_names = [
         ['DIE LINKE', ['DIE LINKE.']],
-        ['GRÜNE', ['GRÜNE/B 90', 'EB: Gruner']]
+        ['GRÜNE', ['GRÜNE/B 90', 'EB: Gruner']],
+        ['ÖDP', ['ÖDP / Familie ..']]
     ]
 
     all_alternate_names = [x.upper() for x in reduce(lambda acc, y: acc + y[1], alternate_names, [])]
