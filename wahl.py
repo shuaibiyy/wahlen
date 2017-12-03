@@ -32,12 +32,8 @@ def get_csv_values(csv_path):
     return list(map(lambda x: x[0].split(';'), rows))
 
 
-def get_vote_values():
-    return get_csv_values('./ergebnisse.csv')
-
-
-def get_population_values():
-    return get_csv_values('./population.csv')
+csv_votes = get_csv_values('./ergebnisse.csv')
+csv_population = get_csv_values('./population.csv')
 
 
 def filter_not_parties(values):
@@ -84,17 +80,32 @@ def filter_dashes(kv):
 
 
 def aggregate(kv):
-    """Aggregate values of a list second element in a 2-tuple."""
+    """Aggregate values of a list second element in a 2-tuple.
+    >>> aggregate(('foo', [5, 4, 6]))
+    ('foo', 15)
+    >>> aggregate(('bar', []))
+    ('bar', 0)
+    """
     return kv[0], reduce(lambda acc, x: acc + int(x), kv[1], 0)
 
 
 def total(values):
-    """Sum up values of all seconds in a list of 2-tuples."""
+    """Sum up values of all seconds in a list of 2-tuples.
+    >>> total([('foo', 304), ('bar', 435)])
+    739
+    >>> total([])
+    0
+    """
     return reduce(lambda acc, kv: acc + int(kv[1]), values, 0)
 
 
 def lookup_alt_names(alternate_names, party):
-    """Look up a party's alternate names."""
+    """Look up a party's alternate names.
+    >>> lookup_alt_names([['foo', ['bar', 'baz']], ['boo', []]], ('foo', 443))
+    ['bar', 'baz']
+    >>> lookup_alt_names([['', []], ['boo', []]], ('boo', 0))
+    []
+    """
     maybe = list(filter(lambda x: x[0].upper() == party[0].upper(), alternate_names))
 
     if not maybe:
@@ -179,16 +190,21 @@ def cleanse_first_votes_by_constituencies(values):
 
 def first_votes_by_constituencies():
     """Return parties in all states and constituencies with their 1st votes."""
-    vs = get_vote_values()
-
-    return cleanse_first_votes_by_constituencies(vs)
+    return cleanse_first_votes_by_constituencies(csv_votes)
 
 
-def higher(current, new):
-    """Return the tuple with a higher value in its 2nd element among 2 tuples."""
-    if int(new[1]) > int(current[1]):
-        return new
-    return current
+def higher(first, second):
+    """Return the tuple with a higher value in its 2nd element among 2 tuples.
+    >>> higher(('foo', 45), ('bar', 65))
+    ('bar', 65)
+    >>> higher(('baz', 54), ('baz', 43))
+    ('baz', 54)
+    >>> higher(('lore', 43), ('role', 43))
+    ('lore', 43)
+    """
+    if int(second[1]) > int(first[1]):
+        return second
+    return first
 
 
 def constituency_winner(parties):
@@ -235,24 +251,24 @@ def percentage(num, denom):
     return '{:.4f}'.format((float(num) / denom) * 100)
 
 
-def votes_with_percentages(votes_with_total):
-    """Return a list of parties along with their votes and percentage share."""
-    return list(map(lambda kv: (kv[0], percentage(kv[1], votes_with_total[1])), votes_with_total[0]))
+def votes_with_percentages(votes):
+    """Return a list of parties along with their votes and percentage share.
+    >>> votes_with_percentages(([('CDU', 500), ('SPD', 600), ('MLPD', 50)]))
+    [('CDU', '43.4783'), ('SPD', '52.1739'), ('MLPD', '4.3478')]
+    """
+    vote_total = total(votes)
+    return list(map(lambda kv: (kv[0], percentage(kv[1], vote_total)), votes))
 
 
 def second_votes():
     """Compute zweitstimmen for all parties in the csv."""
-    vs = get_vote_values()
     # party names are at the 3rd index.
-    parties = unique_values_at(vs, 2)
+    parties = unique_values_at(csv_votes, 2)
 
     # contains `-` values for missing votes.
-    unfiltered_values = list(map(lambda x: (x, party_second_votes(x, vs)), parties))
+    unfiltered_values = list(map(lambda x: (x, party_second_votes(x, csv_votes)), parties))
 
-    cleansed_votes = cleanse_second_votes(unfiltered_values)
-    vote_total = total(cleansed_votes)
-
-    return cleansed_votes, vote_total
+    return cleanse_second_votes(unfiltered_values)
 
 
 def cleanse_second_votes_by_constituencies(values):
@@ -261,9 +277,7 @@ def cleanse_second_votes_by_constituencies(values):
 
 def second_votes_by_constituencies():
     """Return parties in all states and constituencies with their 2nd votes."""
-    votes = get_vote_values()
-
-    return cleanse_second_votes_by_constituencies(votes)
+    return cleanse_second_votes_by_constituencies(csv_votes)
 
 
 def add_if_party_matches(party, acc, party_votes):
@@ -353,7 +367,7 @@ def chart_with_labels():
 def display_votes():
     """Display semicolon separated values of parties and their vote percentages."""
     print('Party;Votes')
-    for row in second_votes()[0]:
+    for row in second_votes():
         print('{0};{1}'.format(row[0], row[1]))
 
 
@@ -379,7 +393,7 @@ def compute_seats(total_seats, proportions):
 def state_seat_distribution():
     """Allocate seats to each state based on population."""
     total_seats = 598
-    state_pops = list(map(lambda x: (x[0], x[2]), get_population_values()))
+    state_pops = list(map(lambda x: (x[0], x[2]), csv_population))
 
     return compute_seats(total_seats, state_pops)
 
@@ -393,24 +407,31 @@ def compute_state_seats(state_votes, state_distribution, eligible_parties):
     return compute_seats(total_seats, eligible_votes)
 
 
+def eligible_parties(votes):
+    """Return parties that have more than 5% of the total votes.
+    >>> eligible_parties([('CDU', 100), ('SPD', 50), ('MLPD', 5)])
+    ['CDU', 'SPD']
+    """
+    percentages = votes_with_percentages(votes)
+    above_five_percent = list(filter(lambda x: float(x[1]) >= 5, percentages))
+    return list(map(lambda x: x[0], above_five_percent))
+
+
 def second_vote_seat_distribution():
     """Allocate seats based on zweitstimmen."""
     votes = second_votes()
     votes_by_state = second_votes_by_states()
     state_distribution = state_seat_distribution()
 
-    percentages = votes_with_percentages(votes)
-    above_five_percent = list(filter(lambda x: float(x[1]) >= 5, percentages))
-    eligible_parties = list(map(lambda x: x[0], above_five_percent))
-
-    return list(map(lambda x: (x[0], compute_state_seats(x, state_distribution, eligible_parties)), votes_by_state))
+    return list(
+        map(lambda x: (x[0], compute_state_seats(x, state_distribution, eligible_parties(votes))), votes_by_state))
 
 
 def display_seat_distribution():
     """Print the seat distribution in the Bundestag."""
     first = states_direct_seats()
     second = second_vote_seat_distribution()
-    state_names = list(map(lambda x: (x[0], x[1]), get_population_values()))
+    state_names = list(map(lambda x: (x[0], x[1]), csv_population))
 
     print('state;party;direct_seats;list_seats;ueberhang')
     for i in second:
@@ -429,4 +450,78 @@ def display_seat_distribution():
                     print('{0};{1};{2};{3};{4}'.format(state_name, k[0], first_vote_counterpart[1], k[1], ueberhang))
 
 
-display_seat_distribution()
+def sum_party_across_states(values, party):
+    """Get values for a party across states.
+    >>> example = \
+    [('14', \
+      [('MLPD', 2566), \
+       ('SPD', 261105), \
+       ('BGE', 9451)]), \
+     ('10', \
+      [('MLPD', 427), \
+       ('SPD', 158895), \
+       ('BGE', 1025)])]
+    >>> sum_party_across_states(example, 'SPD')
+    420000
+    """
+    party_across_states = list(map(lambda state: list(filter(lambda y: y[0] == party, state[1])), values))
+    return total([item for sublist in party_across_states for item in sublist])
+
+
+def lookup_party_in_state(values, state, party):
+    """Get values for a party across states.
+    >>> example = \
+    [('1', [('CDU', 10), ('SPD', 1)]), \
+     ('3', [('CDU', 16), ('SPD', 14)]), \
+     ('12', [('CDU', 9), ('SPD', 1)])]
+    >>> lookup_party_in_state(example, '3', 'CDU')
+    ('CDU', 16)
+    >>> lookup_party_in_state([], '419', 'FRAUD')
+    ('FRAUD', 0)
+    """
+    party_across_states = list(map(lambda s: list(filter(lambda y: (s[0] == state) & (y[0] == party), s[1])), values))
+    flat_vals = [item for sublist in party_across_states for item in sublist]
+
+    if not flat_vals:
+        return party, 0
+
+    return flat_vals[0]
+
+
+def compute_mindessitzzahl(first_seats, second_seats):
+    """Compute Mindessitzzahl
+    >>> first_seats = \
+    [(3, \
+        [('CDU', 3), \
+        ('SPD', 24)]), \
+    (11, \
+        [('CDU', 7), \
+        ('SPD', 9)])]
+    >>> second_seats = \
+    [(3, \
+        [('CDU', 11), \
+        ('SPD', 12), \
+        ('MLPD', 3)]), \
+    (11, \
+        [('CDU', 4), \
+        ('SPD', 60)]), \
+    (13, \
+        [('CDU', 1), \
+        ('SPD', 40)])]
+    >>> compute_mindessitzzahl(first_seats, second_seats)
+    [(3, [('CDU', 11), ('SPD', 24), ('MLPD', 3)]), (11, [('CDU', 7), ('SPD', 60)]), (13, [('CDU', 1), ('SPD', 40)])]
+    """
+    return list(map(lambda x:
+                    (x[0], list(map(lambda y:
+                                    higher(y, lookup_party_in_state(first_seats, x[0], y[0])), x[1]))), second_seats))
+
+
+def mindessitzzahl():
+    """Returns the Mindessitzzahl for each party in each state."""
+    return compute_mindessitzzahl(states_direct_seats(), second_vote_seat_distribution())
+
+
+if __name__ == '__main__':
+    import doctest
+
+    doctest.testmod()
