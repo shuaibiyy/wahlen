@@ -451,7 +451,7 @@ def display_seat_distribution():
 
 
 def sum_party_across_states(values, party):
-    """Get values for a party across states.
+    """Sum up values for a party across states.
     >>> example = \
     [('14', \
       [('MLPD', 2566), \
@@ -469,7 +469,7 @@ def sum_party_across_states(values, party):
 
 
 def lookup_party_in_state(values, state, party):
-    """Get values for a party across states.
+    """Look up a party in a particular state.
     >>> example = \
     [('1', [('CDU', 10), ('SPD', 1)]), \
      ('3', [('CDU', 16), ('SPD', 14)]), \
@@ -517,7 +517,7 @@ def compute_mindessitzzahl(first_seats, second_seats):
 
 
 def mindessitzzahl():
-    """Returns the Mindessitzzahl for each party in each state."""
+    """Return the Mindessitzzahl for each party in each state."""
     return compute_mindessitzzahl(states_direct_seats(), second_vote_seat_distribution())
 
 
