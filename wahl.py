@@ -115,7 +115,12 @@ def lookup_alt_names(alternate_names, party):
 
 
 def lookup_1st_value(values, match_text):
-    """Return the first matching tuple of first values in a list of tuples."""
+    """Return the first matching tuple of first values in a list of tuples.
+    >>> lookup_1st_value([('foo', 65), ('bar', 43), ('baz', 23), ('bar', 67)], 'bar')
+    ('bar', 43)
+    >>> lookup_1st_value([], 'foo')
+    ('foo', 0)
+    """
     maybe = list(filter(lambda x: x[0].upper() == match_text.upper(), values))
 
     if not maybe:
@@ -371,7 +376,7 @@ def display_votes():
         print('{0};{1}'.format(row[0], row[1]))
 
 
-def compute_seats(total_seats, proportions):
+def compute_seat_distribution(total_seats, proportions):
     """Seat allocation algorithm."""
     total_proportions = total(proportions)
     divisor = round(float(total_proportions) / total_seats)
@@ -395,16 +400,16 @@ def state_seat_distribution():
     total_seats = 598
     state_pops = list(map(lambda x: (x[0], x[2]), csv_population))
 
-    return compute_seats(total_seats, state_pops)
+    return compute_seat_distribution(total_seats, state_pops)
 
 
-def compute_state_seats(state_votes, state_distribution, eligible_parties):
+def compute_state_seats(state_votes, state_distribution, parties):
     """Compute no. of seats for parties in each state."""
     state, parties_votes = state_votes
-    eligible_votes = list(filter(lambda x: x[0] in eligible_parties, parties_votes))
+    eligible_votes = list(filter(lambda x: x[0] in parties, parties_votes))
     _, total_seats = lookup_1st_value(state_distribution, state)
 
-    return compute_seats(total_seats, eligible_votes)
+    return compute_seat_distribution(total_seats, eligible_votes)
 
 
 def eligible_parties(votes):
@@ -462,10 +467,10 @@ def sum_party_across_states(values, party):
        ('SPD', 158895), \
        ('BGE', 1025)])]
     >>> sum_party_across_states(example, 'SPD')
-    420000
+    ('SPD', 420000)
     """
     party_across_states = list(map(lambda state: list(filter(lambda y: y[0] == party, state[1])), values))
-    return total([item for sublist in party_across_states for item in sublist])
+    return party, total([item for sublist in party_across_states for item in sublist])
 
 
 def lookup_party_in_state(values, state, party):
@@ -489,7 +494,7 @@ def lookup_party_in_state(values, state, party):
 
 
 def compute_mindessitzzahl(first_seats, second_seats):
-    """Compute Mindessitzzahl
+    """Compute the Mindessitzzahl for each party in each state.
     >>> first_seats = \
     [(3, \
         [('CDU', 3), \
@@ -516,9 +521,59 @@ def compute_mindessitzzahl(first_seats, second_seats):
                                     higher(y, lookup_party_in_state(first_seats, x[0], y[0])), x[1]))), second_seats))
 
 
-def mindessitzzahl():
-    """Return the Mindessitzzahl for each party in each state."""
-    return compute_mindessitzzahl(states_direct_seats(), second_vote_seat_distribution())
+def federal_mindessitzzahl(parties, mindessitzzahl):
+    """Return the Mindessitzzahl for each party across all states.
+    >>> mindessitzzahl = \
+   [(3, [('CDU', 11), ('SPD', 24), ('MLPD', 3)]), (11, [('CDU', 7), ('SPD', 60)]), (13, [('CDU', 1), ('SPD', 40)])]
+    >>> federal_mindessitzzahl(['CDU', 'SPD'],  mindessitzzahl)
+    [('CDU', 19), ('SPD', 124)]
+    """
+    return list(map(lambda x: sum_party_across_states(mindessitzzahl, x), parties))
+
+
+def is_mindessitzzahl_reached(distribution, mindessitzzahl):
+    """Has each party reached its mindessitzzahl?
+    >>> distribution = [('CDU', 40), ('SPD', 36), ('CSU', 15)]
+    >>> mindessitzzahl = [('CDU', 43), ('SPD', 33), ('CSU', 20)]
+    >>> is_mindessitzzahl_reached(distribution, mindessitzzahl)
+    False
+
+    >>> distribution = [('CDU', 43), ('SPD', 36), ('CSU', 21)]
+    >>> mindessitzzahl = [('CDU', 43), ('SPD', 33), ('CSU', 20)]
+    >>> is_mindessitzzahl_reached(distribution, mindessitzzahl)
+    True
+    """
+    return reduce(lambda acc, x: acc & (x[1] >= lookup_1st_value(mindessitzzahl, x[0])[1]), distribution, True)
+
+
+def compute_mindessitzzahl_distribution(total_seats, proportions, mindessitzzahl):
+    """Seat allocation algorithm."""
+    total_proportions = total(proportions)
+
+    while True:
+        divisor = round(float(total_proportions) / total_seats)
+        trial_seats = list(map(lambda x: (x[0], round(float(x[1]) / divisor)), proportions))
+        if not is_mindessitzzahl_reached(trial_seats, mindessitzzahl):
+            total_seats += 1
+            continue
+
+        return trial_seats
+
+
+def federal_seat_distribution():
+    """Return the seat distribution for all parties at the federal level."""
+    votes = second_votes()
+    parties = eligible_parties(votes)
+    eligible_votes = list(filter(lambda x: x[0] in parties, votes))
+
+    first_seats = states_direct_seats()
+    second_seats = second_vote_seat_distribution()
+
+    mindessitzzahl = compute_mindessitzzahl(first_seats, second_seats)
+    federal_mindessitz = federal_mindessitzzahl(parties, mindessitzzahl)
+    total_seats = total(federal_mindessitz)
+
+    return compute_mindessitzzahl_distribution(total_seats, eligible_votes, federal_mindessitz)
 
 
 if __name__ == '__main__':
