@@ -36,6 +36,16 @@ csv_votes = get_csv_values('./ergebnisse.csv')
 csv_population = get_csv_values('./population.csv')
 
 
+def flatten(ls):
+    """Flatten a nested list by 1 level.
+    >>> flatten([[]])
+    []
+    >>> flatten([[(1,2)], [(4,5)]])
+    [(1, 2), (4, 5)]
+    """
+    return [item for sublist in ls for item in sublist]
+
+
 def filter_not_parties(values):
     """Remove entries that are not for parties."""
     not_parties = ['Wahlberechtigte', 'Wähler', 'Ungültige', 'Gültige']
@@ -127,6 +137,12 @@ def lookup_1st_value(values, match_text):
         return match_text, 0
 
     return maybe[0]
+
+
+def lookup_state_name(state_id):
+    """Look up the name of a state by its ID."""
+    state_names = [(x[0], x[1]) for x in csv_population]
+    return lookup_1st_value(state_names, state_id)[1]
 
 
 def merge_alt_names(alternate_names, alternates_with_votes, party):
@@ -295,11 +311,10 @@ def add_if_party_matches(party, acc, party_votes):
 
 def second_vote_by_state(state_votes):
     """Return parties in a states with their 2nd votes."""
-    votes = list(map(lambda x: x[1], state_votes))
-    flat_votes = [item for sublist in votes for item in sublist]
-    parties = set(list(map(lambda x: x[0], flat_votes)))
+    votes = flatten(list(map(lambda x: x[1], state_votes)))
+    parties = set(list(map(lambda x: x[0], votes)))
 
-    return list(map(lambda x: (x, reduce(lambda acc, y: add_if_party_matches(x, acc, y), flat_votes, 0)), parties))
+    return list(map(lambda x: (x, reduce(lambda acc, y: add_if_party_matches(x, acc, y), votes, 0)), parties))
 
 
 def second_votes_by_states():
@@ -382,7 +397,7 @@ def compute_seat_distribution(total_seats, proportions):
     divisor = round(float(total_proportions) / total_seats)
 
     while True:
-        trial_seats = list(map(lambda x: (x[0], round(float(x[1]) / divisor)), proportions))
+        trial_seats = [(x[0], round(float(x[1]) / divisor)) for x in proportions]
         total_trial_seats = total(trial_seats)
 
         if total_trial_seats != total_seats:
@@ -398,7 +413,7 @@ def compute_seat_distribution(total_seats, proportions):
 def state_seat_distribution():
     """Allocate seats to each state based on population."""
     total_seats = 598
-    state_pops = list(map(lambda x: (x[0], x[2]), csv_population))
+    state_pops = [(x[0], x[2]) for x in csv_population]
 
     return compute_seat_distribution(total_seats, state_pops)
 
@@ -406,7 +421,7 @@ def state_seat_distribution():
 def compute_state_seats(state_votes, state_distribution, parties):
     """Compute no. of seats for parties in each state."""
     state, parties_votes = state_votes
-    eligible_votes = list(filter(lambda x: x[0] in parties, parties_votes))
+    eligible_votes = [x for x in parties_votes if x[0] in parties]
     _, total_seats = lookup_1st_value(state_distribution, state)
 
     return compute_seat_distribution(total_seats, eligible_votes)
@@ -418,7 +433,7 @@ def eligible_parties(votes):
     ['CDU', 'SPD']
     """
     percentages = votes_with_percentages(votes)
-    above_five_percent = list(filter(lambda x: float(x[1]) >= 5, percentages))
+    above_five_percent = [x for x in percentages if float(x[1]) >= 5]
     return list(map(lambda x: x[0], above_five_percent))
 
 
@@ -436,7 +451,6 @@ def display_seat_distribution():
     """Print the seat distribution in the Bundestag."""
     first = states_direct_seats()
     second = second_vote_seat_distribution()
-    state_names = list(map(lambda x: (x[0], x[1]), csv_population))
 
     print('state;party;direct_seats;list_seats;ueberhang')
     for i in second:
@@ -445,7 +459,7 @@ def display_seat_distribution():
             if i[0] == j[0]:
                 for k in i[1]:
                     first_vote_counterpart = lookup_1st_value(j[1], k[0])
-                    _, state_name = lookup_1st_value(state_names, i[0])
+                    state_name = lookup_state_name(i[0])
 
                     # Ueberhang is the difference when direct seats are more than list seats.
                     ueberhang = int(first_vote_counterpart[1]) - int(k[1])
@@ -470,7 +484,24 @@ def sum_party_across_states(values, party):
     ('SPD', 420000)
     """
     party_across_states = list(map(lambda state: list(filter(lambda y: y[0] == party, state[1])), values))
-    return party, total([item for sublist in party_across_states for item in sublist])
+    return party, total(flatten(party_across_states))
+
+
+def lookup_party_across_states(values, party):
+    """Sum up values for a party across states.
+    >>> example = \
+    [('14', \
+      [('MLPD', 2566), \
+       ('SPD', 261105), \
+       ('BGE', 9451)]), \
+     ('10', \
+      [('MLPD', 427), \
+       ('SPD', 158895), \
+       ('BGE', 1025)])]
+    >>> lookup_party_across_states(example, 'SPD')
+    [('14', ['SPD', 261105]), ('10', ['SPD', 158895])]
+    """
+    return list(map(lambda state: (state[0], flatten(list(filter(lambda y: y[0] == party, state[1])))), values))
 
 
 def lookup_party_in_state(values, state, party):
@@ -484,13 +515,13 @@ def lookup_party_in_state(values, state, party):
     >>> lookup_party_in_state([], '419', 'FRAUD')
     ('FRAUD', 0)
     """
-    party_across_states = list(map(lambda s: list(filter(lambda y: (s[0] == state) & (y[0] == party), s[1])), values))
-    flat_vals = [item for sublist in party_across_states for item in sublist]
+    party_across_states = flatten(
+        list(map(lambda s: list(filter(lambda y: (s[0] == state) & (y[0] == party), s[1])), values)))
 
-    if not flat_vals:
+    if not party_across_states:
         return party, 0
 
-    return flat_vals[0]
+    return party_across_states[0]
 
 
 def compute_mindessitzzahl(first_seats, second_seats):
@@ -528,7 +559,7 @@ def federal_mindessitzzahl(parties, mindessitzzahl):
     >>> federal_mindessitzzahl(['CDU', 'SPD'],  mindessitzzahl)
     [('CDU', 19), ('SPD', 124)]
     """
-    return list(map(lambda x: sum_party_across_states(mindessitzzahl, x), parties))
+    return [sum_party_across_states(mindessitzzahl, x) for x in parties]
 
 
 def is_mindessitzzahl_reached(distribution, mindessitzzahl):
@@ -547,12 +578,12 @@ def is_mindessitzzahl_reached(distribution, mindessitzzahl):
 
 
 def compute_mindessitzzahl_distribution(total_seats, proportions, mindessitzzahl):
-    """Seat allocation algorithm."""
+    """Seat allocation algorithm based on mindessitzzahl."""
     total_proportions = total(proportions)
 
     while True:
         divisor = round(float(total_proportions) / total_seats)
-        trial_seats = list(map(lambda x: (x[0], round(float(x[1]) / divisor)), proportions))
+        trial_seats = [(x[0], round(float(x[1]) / divisor)) for x in proportions]
         if not is_mindessitzzahl_reached(trial_seats, mindessitzzahl):
             total_seats += 1
             continue
@@ -564,7 +595,7 @@ def federal_seat_distribution():
     """Return the seat distribution for all parties at the federal level."""
     votes = second_votes()
     parties = eligible_parties(votes)
-    eligible_votes = list(filter(lambda x: x[0] in parties, votes))
+    eligible_votes = [x for x in votes if x[0] in parties]
 
     first_seats = states_direct_seats()
     second_seats = second_vote_seat_distribution()
@@ -574,6 +605,27 @@ def federal_seat_distribution():
     total_seats = total(federal_mindessitz)
 
     return compute_mindessitzzahl_distribution(total_seats, eligible_votes, federal_mindessitz)
+
+
+def party_seat_distribution(federal_seats, party, votes):
+    """Distribute the seats for a party in its states."""
+    party_across_states = lookup_party_across_states(votes, party)
+    cleansed_states = [x for x in party_across_states if len(x[1]) != 0]
+    party_votes = [('{0}__{1}'.format(x[0], x[1][0]), x[1][1]) for x in cleansed_states]
+    _, total_seats = lookup_1st_value(federal_seats, party)
+
+    distribution = compute_seat_distribution(total_seats, party_votes)
+
+    return [(lookup_state_name(x[0].split('__')[0]), x[1]) for x in distribution]
+
+
+def parties_seat_distributions():
+    """Distribute the seats for each party in its states."""
+    votes_by_state = second_votes_by_states()
+    federal_seats = federal_seat_distribution()
+    parties = [x[0] for x in federal_seats]
+
+    return [(x, party_seat_distribution(federal_seats, x, votes_by_state)) for x in parties]
 
 
 if __name__ == '__main__':
