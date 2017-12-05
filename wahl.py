@@ -29,7 +29,7 @@ def get_csv_values(csv_path):
     # Remove column headings
     del rows[0]
 
-    return list(map(lambda x: x[0].split(';'), rows))
+    return [x[0].split(';') for x in rows]
 
 
 csv_votes = get_csv_values('./ergebnisse.csv')
@@ -49,7 +49,7 @@ def flatten(ls):
 def filter_not_parties(values):
     """Remove entries that are not for parties."""
     not_parties = ['Wahlberechtigte', 'Wähler', 'Ungültige', 'Gültige']
-    return list(filter(lambda x: x[2] not in not_parties, values))
+    return [x for x in values if x[2] not in not_parties]
 
 
 def values_at(csv_values, index):
@@ -57,7 +57,7 @@ def values_at(csv_values, index):
 
     filtered = filter_not_parties(csv_values)
 
-    return list(map(lambda x: x[index], filtered))
+    return [x[index] for x in filtered]
 
 
 def unique_values_at(csv_values, index):
@@ -67,7 +67,7 @@ def unique_values_at(csv_values, index):
 
 def values_by(csv_values, filter_text, index):
     """Return values filtered by the text at an index."""
-    return list(filter(lambda x: x[index] == filter_text, csv_values))
+    return [x for x in csv_values if x[index] == filter_text]
 
 
 def party_second_vote(party, value):
@@ -81,12 +81,12 @@ def party_second_vote(party, value):
 
 def party_second_votes(party, values):
     """Return all zweitstimmen for a party."""
-    return list(map(lambda x: party_second_vote(party, x), values))
+    return [party_second_vote(party, x) for x in values]
 
 
 def filter_dashes(kv):
     """Remove dashes from seconds in a 2-tuple."""
-    return kv[0], list(filter(lambda x: x != '-', kv[1]))
+    return kv[0], [x for x in kv[1] if x != '-']
 
 
 def aggregate(kv):
@@ -116,7 +116,7 @@ def lookup_alt_names(alternate_names, party):
     >>> lookup_alt_names([['', []], ['boo', []]], ('boo', 0))
     []
     """
-    maybe = list(filter(lambda x: x[0].upper() == party[0].upper(), alternate_names))
+    maybe = [x for x in alternate_names if x[0].upper() == party[0].upper()]
 
     if not maybe:
         return []
@@ -131,7 +131,7 @@ def lookup_1st_value(values, match_text):
     >>> lookup_1st_value([], 'foo')
     ('foo', 0)
     """
-    maybe = list(filter(lambda x: x[0].upper() == match_text.upper(), values))
+    maybe = [x for x in values if x[0].upper() == match_text.upper()]
 
     if not maybe:
         return match_text, 0
@@ -148,7 +148,7 @@ def lookup_state_name(state_id):
 def merge_alt_names(alternate_names, alternates_with_votes, party):
     """Merge the votes of a party with votes of its known alternate names."""
     matched_alt_names = lookup_alt_names(alternate_names, party)
-    matched_votes = list(map(lambda x: lookup_1st_value(alternates_with_votes, x), matched_alt_names))
+    matched_votes = [lookup_1st_value(alternates_with_votes, x) for x in matched_alt_names]
     matched_votes.append(party)
 
     return party[0], total(matched_votes)
@@ -166,13 +166,13 @@ def merge_parties_alt_names(parties_votes):
     alts = [f for f in parties_votes if f[0].upper() in all_alternate_names]
     originals = [f for f in parties_votes if f[0].upper() not in all_alternate_names]
 
-    return list(map(lambda x: merge_alt_names(alternate_names, alts, x), originals))
+    return [merge_alt_names(alternate_names, alts, x) for x in originals]
 
 
 def constituency_votes(constituency, values, vote_index):
     """Return the votes for the parties in a constituency."""
     const_vals = values_by(values, constituency, 1)
-    votes = list(map(lambda x: (x[2], x[vote_index]), const_vals))
+    votes = [(x[2], x[vote_index]) for x in const_vals]
     merged_votes = merge_parties_alt_names(votes)
 
     return merged_votes
@@ -183,7 +183,7 @@ def constituencies_votes(state, values, vote_index):
     state_vals = values_by(values, state, 0)
     constituencies = unique_values_at(state_vals, 1)
 
-    return list(map(lambda x: (x, constituency_votes(x, state_vals, vote_index)), constituencies))
+    return [(x, constituency_votes(x, state_vals, vote_index)) for x in constituencies]
 
 
 def cleanse_votes_by_constituencies(values, vote_index):
@@ -198,9 +198,9 @@ def cleanse_votes_by_constituencies(values, vote_index):
          """
 
     real_parties = filter_not_parties(values)
-    with_votes = list(filter(lambda x: x[vote_index] != '-', real_parties))
+    with_votes = [x for x in real_parties if x[vote_index] != '-']
     states = unique_values_at(values, 0)
-    states_votes = list(map(lambda x: (x, constituencies_votes(x, with_votes, vote_index)), states))
+    states_votes = [(x, constituencies_votes(x, with_votes, vote_index)) for x in states]
 
     return states_votes
 
@@ -235,7 +235,7 @@ def constituency_winner(parties):
 
 def state_constituency_winners(state_vals):
     """Return the winners of the constituencies in a state."""
-    return list(map(lambda y: (y[0], constituency_winner(y[1])[0]), state_vals))
+    return [(y[0], constituency_winner(y[1])[0]) for y in state_vals]
 
 
 def direct_seat_winners():
@@ -243,25 +243,25 @@ def direct_seat_winners():
     E.g. [('1', [('11', 'CDU'), ('4', 'DIE LINKE')]), ('2', [('1', 'CDU'), ('10', 'SPD')])]"""
     votes = first_votes_by_constituencies()
 
-    return list(map(lambda x: (x[0], state_constituency_winners(x[1])), votes))
+    return [(x[0], state_constituency_winners(x[1])) for x in votes]
 
 
 def wins_per_party(constituency_winners):
     """Return the number of constituencies won by each party."""
-    parties = list(map(lambda x: x[1], constituency_winners))
+    parties = [x[1] for x in constituency_winners]
     return list(Counter(parties).items())
 
 
 def states_direct_seats():
     """Return each party's share of wins in each state."""
     winners = direct_seat_winners()
-    return list(map(lambda x: (x[0], wins_per_party(x[1])), winners))
+    return [(x[0], wins_per_party(x[1])) for x in winners]
 
 
 def cleanse_second_votes(dirty):
     """Return a sorted list of merged parties with non-zero votes."""
     unsorted_votes = list(map(aggregate, map(filter_dashes, dirty)))
-    non_zero_votes = list(filter(lambda x: x[1] != 0, unsorted_votes))
+    non_zero_votes = [x for x in unsorted_votes if x[1] != 0]
     merged_votes = merge_parties_alt_names(non_zero_votes)
 
     return sorted(merged_votes, key=lambda tup: tup[1], reverse=True)
@@ -278,7 +278,7 @@ def votes_with_percentages(votes):
     [('CDU', '43.4783'), ('SPD', '52.1739'), ('MLPD', '4.3478')]
     """
     vote_total = total(votes)
-    return list(map(lambda kv: (kv[0], percentage(kv[1], vote_total)), votes))
+    return [(kv[0], percentage(kv[1], vote_total)) for kv in votes]
 
 
 def second_votes():
@@ -287,7 +287,7 @@ def second_votes():
     parties = unique_values_at(csv_votes, 2)
 
     # contains `-` values for missing votes.
-    unfiltered_values = list(map(lambda x: (x, party_second_votes(x, csv_votes)), parties))
+    unfiltered_values = [(x, party_second_votes(x, csv_votes)) for x in parties]
 
     return cleanse_second_votes(unfiltered_values)
 
@@ -311,22 +311,22 @@ def add_if_party_matches(party, acc, party_votes):
 
 def second_vote_by_state(state_votes):
     """Return parties in a states with their 2nd votes."""
-    votes = flatten(list(map(lambda x: x[1], state_votes)))
-    parties = set(list(map(lambda x: x[0], votes)))
+    votes = flatten([x[1] for x in state_votes])
+    parties = set([x[0] for x in votes])
 
-    return list(map(lambda x: (x, reduce(lambda acc, y: add_if_party_matches(x, acc, y), votes, 0)), parties))
+    return [(x, reduce(lambda acc, y: add_if_party_matches(x, acc, y), votes, 0)) for x in parties]
 
 
 def second_votes_by_states():
     """Return parties in all states with their 2nd votes."""
     votes = second_votes_by_constituencies()
 
-    return list(map(lambda x: (x[0], second_vote_by_state(x[1])), votes))
+    return [(x[0], second_vote_by_state(x[1])) for x in votes]
 
 
 def total_below(vs, percent):
     """Return total votes below the provided percentage."""
-    other_votes = list(filter(lambda x: float(x[1]) < percent, vs))
+    other_votes = [x for x in vs if float(x[1]) < percent]
     return reduce(lambda acc, kv: acc + float(kv[1]), other_votes, 0)
 
 
