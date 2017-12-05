@@ -32,8 +32,13 @@ def get_csv_values(csv_path):
     return [x[0].split(';') for x in rows]
 
 
-csv_votes = get_csv_values('./ergebnisse.csv')
-csv_population = get_csv_values('./population.csv')
+CSV_VOTES = get_csv_values('./ergebnisse.csv')
+CSV_POPULATION = get_csv_values('./population.csv')
+ALTERNATE_NAMES = [
+    ['DIE LINKE', ['DIE LINKE.']],
+    ['GRÜNE', ['GRÜNE/B 90', 'EB: Gruner']],
+    ['ÖDP', ['ÖDP / Familie ..']]
+]
 
 
 def flatten(ls):
@@ -141,7 +146,7 @@ def lookup_1st_value(values, match_text):
 
 def lookup_state_name(state_id):
     """Look up the name of a state by its ID."""
-    state_names = [(x[0], x[1]) for x in csv_population]
+    state_names = [(x[0], x[1]) for x in CSV_POPULATION]
     return lookup_1st_value(state_names, state_id)[1]
 
 
@@ -156,24 +161,31 @@ def merge_alt_names(alternate_names, alternates_with_votes, party):
 
 def merge_parties_alt_names(parties_votes):
     """Merge the votes of parties with votes of their known alternate names."""
-    alternate_names = [
-        ['DIE LINKE', ['DIE LINKE.']],
-        ['GRÜNE', ['GRÜNE/B 90', 'EB: Gruner']],
-        ['ÖDP', ['ÖDP / Familie ..']]
-    ]
-
-    all_alternate_names = [x.upper() for x in reduce(lambda acc, y: acc + y[1], alternate_names, [])]
+    all_alternate_names = [x.upper() for x in reduce(lambda acc, y: acc + y[1], ALTERNATE_NAMES, [])]
     alts = [f for f in parties_votes if f[0].upper() in all_alternate_names]
     originals = [f for f in parties_votes if f[0].upper() not in all_alternate_names]
 
-    return [merge_alt_names(alternate_names, alts, x) for x in originals]
+    return [merge_alt_names(ALTERNATE_NAMES, alts, x) for x in originals]
+
+
+def maybe_update_name(name, alt_names):
+    """Update a name to its canonical form if it has one."""
+    for names in alt_names:
+        if name in names[1]:
+            return names[0]
+        return name
+
+
+def update_alt_names(votes):
+    """Update alternate names to their canonical forms."""
+    return [(maybe_update_name(x[0], ALTERNATE_NAMES), x[1]) for x in votes]
 
 
 def constituency_votes(constituency, values, vote_index):
     """Return the votes for the parties in a constituency."""
     const_vals = values_by(values, constituency, 1)
     votes = [(x[2], x[vote_index]) for x in const_vals]
-    merged_votes = merge_parties_alt_names(votes)
+    merged_votes = update_alt_names(votes)
 
     return merged_votes
 
@@ -211,7 +223,7 @@ def cleanse_first_votes_by_constituencies(values):
 
 def first_votes_by_constituencies():
     """Return parties in all states and constituencies with their 1st votes."""
-    return cleanse_first_votes_by_constituencies(csv_votes)
+    return cleanse_first_votes_by_constituencies(CSV_VOTES)
 
 
 def higher(first, second):
@@ -284,10 +296,10 @@ def votes_with_percentages(votes):
 def second_votes():
     """Compute zweitstimmen for all parties in the csv."""
     # party names are at the 3rd index.
-    parties = unique_values_at(csv_votes, 2)
+    parties = unique_values_at(CSV_VOTES, 2)
 
     # contains `-` values for missing votes.
-    unfiltered_values = [(x, party_second_votes(x, csv_votes)) for x in parties]
+    unfiltered_values = [(x, party_second_votes(x, CSV_VOTES)) for x in parties]
 
     return cleanse_second_votes(unfiltered_values)
 
@@ -298,7 +310,7 @@ def cleanse_second_votes_by_constituencies(values):
 
 def second_votes_by_constituencies():
     """Return parties in all states and constituencies with their 2nd votes."""
-    return cleanse_second_votes_by_constituencies(csv_votes)
+    return cleanse_second_votes_by_constituencies(CSV_VOTES)
 
 
 def add_if_party_matches(party, acc, party_votes):
@@ -413,7 +425,7 @@ def compute_seat_distribution(total_seats, proportions):
 def state_seat_distribution():
     """Allocate seats to each state based on population."""
     total_seats = 598
-    state_pops = [(x[0], x[2]) for x in csv_population]
+    state_pops = [(x[0], x[2]) for x in CSV_POPULATION]
 
     return compute_seat_distribution(total_seats, state_pops)
 
@@ -439,12 +451,12 @@ def eligible_parties(votes):
 
 def second_vote_seat_distribution():
     """Allocate seats based on zweitstimmen."""
-    votes = second_votes()
+    parties = eligible_parties(second_votes())
     votes_by_state = second_votes_by_states()
     state_distribution = state_seat_distribution()
 
     return list(
-        map(lambda x: (x[0], compute_state_seats(x, state_distribution, eligible_parties(votes))), votes_by_state))
+        map(lambda x: (x[0], compute_state_seats(x, state_distribution, parties)), votes_by_state))
 
 
 def display_seat_distribution():
