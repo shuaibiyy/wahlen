@@ -106,5 +106,4 @@ venv.bak/
 .mypy_cache/
 
 .idea
-*.iml
-result.csv
+_*.csv
