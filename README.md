@@ -2,10 +2,6 @@
 
 Learning python by exploring Germany's 2017 election results.
 
-## Requirements
-
-* [pandas](https://pandas.pydata.org/pandas-docs/stable/install.html)
-
 ## Usage
 
 The python script produces the output of some of the steps involved in the allocation of seats in the Bundestag.
