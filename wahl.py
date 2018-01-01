@@ -2,11 +2,14 @@
 # Written using python 3.6
 import sys
 import csv
+import re
+import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 from pprint import pprint
 from functools import reduce
 from collections import Counter
+from bs4 import BeautifulSoup
 
 plt.rcdefaults()
 
@@ -172,11 +175,16 @@ def merge_parties_alt_names(parties_votes):
 
 
 def maybe_update_name(name, alt_names):
-    """Update a name to its canonical form if it has one."""
+    """Update a name to its canonical form if it has one.
+    >>> maybe_update_name('DIE LINKE.', ALTERNATE_NAMES)
+    'DIE LINKE'
+    >>> maybe_update_name('GRÜNE/B 90', ALTERNATE_NAMES)
+    'GRÜNE'
+    """
     for names in alt_names:
         if name in names[1]:
             return names[0]
-        return name
+    return name
 
 
 def update_alt_names(votes):
@@ -733,8 +741,171 @@ def write_parties_seat_distributions():
                 csv_file.write('{0};{1};{2}\n'.format(p[0], s[0], s[1]))
 
 
+def state_urls():
+    """Returns html pages containing the election results of each state."""
+    root_url = 'https://www.bundeswahlleiter.de/en/bundestagswahlen/2017/'
+    root_page = BeautifulSoup(requests.get(root_url + 'wahlbewerber.html').content, 'html5lib')
+
+    urls = root_page.body.findAll('a', href=re.compile('wahlbewerber/bund-99/land-'))
+    return set(['{0}{1}'.format(root_url, l['href']) for l in urls])
+
+
+def pages(urls):
+    """Fetch web pages."""
+    return [[url, BeautifulSoup(requests.get(url).content, 'html5lib')] for url in urls]
+
+
+def get_urls(root_url, urls):
+    """Extracts the urls from a list of BeautifulSoup anchors(<a>) and joins each with the root url.
+    >>> expected = {'http://example.com/secret/1.html', 'http://example.com/secret/2.html'}
+    >>> tags = \
+    [BeautifulSoup('<a href="secret/1.html"></a>', "html5lib"), \
+    BeautifulSoup('<a href="secret/2.html"></a>', "html5lib"), \
+    BeautifulSoup('<a href="secret/1.html"></a>', "html5lib")]
+    >>> get_urls('http://example.com/secret.html', [tag.a for tag in tags]) == expected
+    True
+    """
+    return set(['{0}/{1}'.format(''.join(root_url.rsplit('/', 1)[:-1]), l['href']) for l in urls])
+
+
+def constituency_urls(state_pages):
+    """Returns the urls of constituencies for each state."""
+    links = [[page[0], page[1].body.findAll('a', href=re.compile('^' + page[0].rsplit('/', 1)[-1].split('.')[0]))] for
+             page in state_pages]
+    return [get_urls(u[0], u[1]) for u in links]
+
+
+def url_segment(url):
+    """Returns a segment of a URL.
+    >>> url_segment('https://www.bd.de/en/d/2017/wahlbewerber/bund-99/land-56.html',)
+    '56'
+    >>> url_segment('https://www.bd.de/en/d/2017/wahlbewerber/bund-99/land-76.html')
+    '76'
+    """
+    return url.rsplit('/')[-1].split('-')[1].split('.')[0]
+
+
+def get_constituency_candidate(row):
+    party = row.find('th').get_text().strip()
+    candidate_name = row.find('td').get_text().strip()
+    return party, candidate_name
+
+
+def get_constituency_candidates(url):
+    page = BeautifulSoup(requests.get(url).content, 'html5lib')
+    table = page.body.find('tbody')
+    rows = table.findAll('tr')
+    return [get_constituency_candidate(r) for r in rows]
+
+
+def get_constituencies_candidates(constituencies):
+    return [(u[0], get_constituency_candidates(u[1])) for u in constituencies]
+
+
+def state_constituencies_candidates(urls):
+    constituencies = [(url_segment(u), u) for u in urls]
+    return get_constituencies_candidates(constituencies)
+
+
+def states_constituencies_candidates(state_pages):
+    """Return the candidates for direct seats in all states' constituencies."""
+    return [state_constituencies_candidates(list(u)) for u in constituency_urls(state_pages)]
+
+
+def direct_candidate(winning_party, candidates):
+    """Return the elected candidate based on the party that won in a constituency.
+    >>> direct_candidate(('190', 'CDU'), [('190', [('CDU', 'Selle, Johannes'), ('SPD', 'Matschie, Christoph')])])
+    ('CDU', 'Selle, Johannes')
+    """
+    constituencies = lookup_1st_value(candidates, winning_party[0])
+    candidate = lookup_1st_value(constituencies[1], winning_party[1])
+    return candidate
+
+
+def party_list_candidates(article):
+    """Return the list candidates for a party."""
+    table = article.find('tbody')
+    party = article.find('span').get_text().strip()
+    rows = table.findAll('tr')
+    candidates = [r.findAll('td')[0].get_text().strip() for r in rows]
+    return party, candidates
+
+
+def state_list_candidates(page):
+    """Return the list candidates from a state's web page."""
+    return [party_list_candidates(a) for a in page.body.findAll('article')]
+
+
+def count_entries(tuples, value):
+    """Count the number of entries in a list of tuples that has the specified value.
+    >>> count_entries([\
+    ('CDU', 'Hirte, Christian'),\
+    ('CDU', 'Selle, Johannes'),\
+    ('SPD', 'Weiler, Albert Helmut')\
+    ], 'SPD')
+    1
+    >>> count_entries([], 'CDU')
+    0
+    """
+    return len([t for t in tuples if t[0] == value])
+
+
+def fill_vacant_seats(state, party_state_distribution, direct_elects, candidates):
+    # Go through the states the party has allotted seats.
+    elected = direct_elects
+    party, seats_across_states = party_state_distribution
+    for s in seats_across_states:
+        if s[0] == lookup_state_name(state):
+            # check if the state already has enough elected candidates
+            elected_diff = s[1] - count_entries(elected, party)
+            if elected_diff > 0:
+                # add to the elected candidates from the candidates list
+                _, party_candidates = lookup_1st_value(candidates, party)
+                if party_candidates == 0:
+                    for alt_name in lookup_alt_names(ALTERNATE_NAMES, (party, 0)):
+                        _, party_candidates = lookup_1st_value(candidates, alt_name)
+                        if party_candidates != 0:
+                            break
+
+                already_elected = [m[1] for m in elected]
+                valid_candidates = [m for m in party_candidates if m not in already_elected]
+                newly_elected = [(party, m) for m in valid_candidates[0:elected_diff]]
+                elected += newly_elected
+    return elected
+
+
+def state_elected_candidates(url, state_pages, constituencies_candidates):
+    """Return candidates elected to the Bundestag in a particular state."""
+    state = url_segment(url)
+    _, page = lookup_1st_value(state_pages, url)
+    list_candidates = state_list_candidates(page)
+    const_direct_winners = lookup_1st_value(direct_seat_winners(), state)
+    direct_elects = [direct_candidate(c, constituencies_candidates) for c in
+                     const_direct_winners[1]]
+    elected = [fill_vacant_seats(state, party_states, direct_elects, list_candidates) for party_states in
+               parties_seat_distributions()]
+    return lookup_state_name(state), elected[-1]
+
+
+def elected_candidates():
+    """Return the candidates elected to the Bundestag."""
+    urls = state_urls()
+    state_pages = pages(urls)
+    constituencies_candidates = flatten(states_constituencies_candidates(state_pages))
+    return [state_elected_candidates(url, state_pages, constituencies_candidates) for url in urls]
+
+
+def write_elected_candidates():
+    with open('_elected_candidates.csv', 'w') as csv_file:
+        csv_file.write('State;Party;Candidate\n')
+        for s in elected_candidates():
+            for m in s[1]:
+                csv_file.write('{0};{1};{2}\n'.format(s[0], m[0], m[1]))
+
+
 funcs = {
     'bundestag_seats': write_parties_seat_distributions,
+    'elected_candidates': write_elected_candidates,
     'direct_list_seats': write_direct_and_list_seats,
     'second_votes': write_second_votes,
     'second_votes_chart': chart_with_labels

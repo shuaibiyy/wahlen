@@ -23,9 +23,16 @@ __Direct seats and list seats (Direktmandat, Listenmandat and Überhang)__:
 python wahl.py direct_list_seats # generates _direct_list_seats.csv
 ```
 
-__Final Bundestag Seat Distribution__:
+__Bundestag Seat Distribution__:
 ```
 python wahl.py bundestag_seats # generates _bundestag_seats.csv
+```
+
+__Candidates elected to the Bundestag__:
+
+_This takes about 1-2 minutes to complete on my macbook pro 2016 as it crawls the [election site](https://www.bundeswahlleiter.de)._
+```
+python wahl.py elected_candidates # generates _elected_candidates.csv
 ```
 
 ## Tests
