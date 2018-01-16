@@ -4,12 +4,15 @@ import sys
 import csv
 import re
 import requests
+import shapefile
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from pprint import pprint
 from functools import reduce
 from collections import Counter
 from bs4 import BeautifulSoup
+from mpl_toolkits.basemap import Basemap
 
 plt.rcdefaults()
 
@@ -895,6 +898,23 @@ def elected_candidates():
     return [state_elected_candidates(url, state_pages, constituencies_candidates) for url in urls]
 
 
+def directly_elected_candidates(url, constituencies_candidates):
+    """Return candidates elected to the Bundestag from constituencies in a state."""
+    state = url_segment(url)
+    const_direct_winners = lookup_1st_value(direct_seat_winners(), state)
+    direct_elects = [(c[0], direct_candidate(c, constituencies_candidates)[1]) for c in
+                     const_direct_winners[1]]
+    return direct_elects
+
+
+def constituencies_elected_candidates():
+    """Return candidates elected to the Bundestag in all constituencies across Germany."""
+    urls = state_urls()
+    state_pages = pages(urls)
+    constituencies_candidates = flatten(states_constituencies_candidates(state_pages))
+    return flatten([directly_elected_candidates(url, constituencies_candidates) for url in urls])
+
+
 def write_elected_candidates():
     with open('_elected_candidates.csv', 'w') as csv_file:
         csv_file.write('State;Party;Candidate\n')
@@ -903,12 +923,48 @@ def write_elected_candidates():
                 csv_file.write('{0};{1};{2}\n'.format(s[0], m[0], m[1]))
 
 
+def directly_elected_candidates_map():
+    shp_file = 'Geometrie_Wahlkreise_19DBT_geo'
+    shp_file_dir = 'shapefiles/'
+    sf = shapefile.Reader(shp_file_dir + shp_file)
+
+    election_map = Basemap(llcrnrlon=5.87, llcrnrlat=47.27, urcrnrlon=15.04, urcrnrlat=55.06,
+                           resolution='i', projection='tmerc', lat_0=51.16, lon_0=10.45)
+
+    election_map.drawmapboundary(fill_color='aqua')
+    election_map.fillcontinents(color='#ddaa66', lake_color='aqua')
+    election_map.drawcoastlines()
+
+    election_map.readshapefile(shp_file_dir + shp_file, shp_file)
+
+    candidates = constituencies_elected_candidates()
+
+    for shapeRec in sf.shapeRecords():
+        x_lon = np.zeros((len(shapeRec.shape.points), 1))
+        y_lat = np.zeros((len(shapeRec.shape.points), 1))
+        for ip in range(len(shapeRec.shape.points)):
+            x_lon[ip] = shapeRec.shape.points[ip][0]
+            y_lat[ip] = shapeRec.shape.points[ip][1]
+
+        mid_x_lon = (min(x_lon) + max(x_lon)) / 2
+        mid_y_lat = (min(y_lat) + max(y_lat)) / 2
+        x, y = election_map(mid_x_lon, mid_y_lat)
+
+        constituency = shapeRec.record[0]
+        _, candidate = lookup_1st_value(candidates, str(constituency))
+
+        plt.text(x, y, candidate, fontsize=10, ha='center', va='center')
+
+    plt.show()
+
+
 funcs = {
     'bundestag_seats': write_parties_seat_distributions,
     'elected_candidates': write_elected_candidates,
     'direct_list_seats': write_direct_and_list_seats,
     'second_votes': write_second_votes,
-    'second_votes_chart': chart_with_labels
+    'second_votes_chart': chart_with_labels,
+    'directly_elected_candidates_map': directly_elected_candidates_map
 }
 
 if len(sys.argv) > 1:
